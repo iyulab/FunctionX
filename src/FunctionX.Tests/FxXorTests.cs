@@ -12,7 +12,7 @@ public class FxXorTests
         var result = await Fx.EvaluateAsync("XOR(true, false)", parameters);
 
         // Assert
-        Assert.True((bool)result);
+        Assert.True((bool)result!);
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class FxXorTests
         var result = await Fx.EvaluateAsync("XOR(true, true)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class FxXorTests
         var result = await Fx.EvaluateAsync("XOR(true, false, false, true)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]
@@ -56,6 +56,6 @@ public class FxXorTests
         var result = await Fx.EvaluateAsync("XOR(@condition1, @condition2, @condition3)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 }

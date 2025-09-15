@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CSharp.RuntimeBinder;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Security;
@@ -16,8 +17,54 @@ namespace FunctionX;
 /// </summary>
 public static partial class Fx
 {
+    private static readonly ConcurrentDictionary<string, Script<object>> _compiledScriptCache = new();
+    private static readonly ConcurrentDictionary<string, ScriptOptions> _optionsCache = new();
+
+    /// <summary>
+    /// Clears the compilation cache. Use when memory optimization is needed.
+    /// </summary>
+    public static void ClearCache()
+    {
+        _compiledScriptCache.Clear();
+        _optionsCache.Clear();
+        GC.Collect(); // Force garbage collection after clearing cache
+    }
+
+    /// <summary>
+    /// Gets the current cache statistics for monitoring performance
+    /// </summary>
+    public static (int CompiledScripts, int OptionsCache) GetCacheStatistics()
+    {
+        return (_compiledScriptCache.Count, _optionsCache.Count);
+    }
+
+    /// <summary>
+    /// Evaluates a mathematical or logical expression asynchronously with Excel-like function support.
+    /// </summary>
+    /// <param name="expression">The expression to evaluate (e.g., "SUM(1,2,3)", "IF(@value > 10, 'High', 'Low')")</param>
+    /// <param name="parameters">Optional dictionary of parameters that can be referenced in the expression using @paramName</param>
+    /// <param name="customFuncType">Optional type containing custom functions to make available in the expression</param>
+    /// <returns>The result of the expression evaluation</returns>
+    /// <exception cref="FxUnsafeExpressionException">Thrown when expression contains potentially unsafe code</exception>
+    /// <exception cref="FxCompilationErrorException">Thrown when expression cannot be compiled</exception>
+    /// <exception cref="FxValueException">Thrown when expression contains invalid values</exception>
+    /// <example>
+    /// <code>
+    /// // Basic math
+    /// var result = await Fx.EvaluateAsync("1 + 2 * 3");
+    ///
+    /// // Using parameters
+    /// var parameters = new Dictionary&lt;string, object?&gt; { {"value", 10} };
+    /// var result = await Fx.EvaluateAsync("@value * 2", parameters);
+    ///
+    /// // Using Excel functions
+    /// var data = new object[] {1, 2, 3, 4, 5};
+    /// var parameters = new Dictionary&lt;string, object?&gt; { {"numbers", data} };
+    /// var average = await Fx.EvaluateAsync("AVERAGE(@numbers)", parameters);
+    /// </code>
+    /// </example>
     public static async Task<object?> EvaluateAsync(
-        string expression, 
+        string expression,
         IDictionary<string, object?>? parameters = null,
         Type? customFuncType = null)
     {
@@ -32,19 +79,31 @@ public static partial class Fx
 #if DEBUG
             Debug.WriteLine($"Expression: {script}");
 #endif
-            var options = ScriptOptions.Default
+
+            // Create cache key for options
+            var optionsKey = customFuncType?.FullName ?? "default";
+            var options = _optionsCache.GetOrAdd(optionsKey, _ =>
+            {
+                var opts = ScriptOptions.Default
                     .WithImports("System", "System.Linq")
                     .AddReferences(Assembly.Load("System.Core"));
 
-            if (customFuncType != null)
-            {
-                options = options
-                    .AddReferences(customFuncType.Assembly)
-                    .WithImports(customFuncType.Namespace);
-            }
+                if (customFuncType != null)
+                {
+                    opts = opts
+                        .AddReferences(customFuncType.Assembly)
+                        .WithImports(customFuncType.Namespace);
+                }
 
-            var result = await CSharpScript.EvaluateAsync(script, options, globals: functions);
-            return result;
+                return opts;
+            });
+
+            // Use cached compilation or create new one
+            var compiledScript = _compiledScriptCache.GetOrAdd(script, scriptText =>
+                CSharpScript.Create<object>(scriptText, options, globalsType: typeof(FxFunctions)));
+
+            var result = await compiledScript.RunAsync(functions);
+            return result.ReturnValue;
         }
         catch (CompilationErrorException ex)
         {
@@ -78,31 +137,89 @@ public static partial class Fx
 
     private static bool CheckSafeExpression(string expression)
     {
-        // 금지된 키워드 목록
-        var forbiddenKeywords = new string[] 
+        // Enhanced security validation with regex patterns
+        var forbiddenPatterns = new[]
         {
-            "import",
-            "System.IO", "Process", "Assembly", "File", "Directory", "Thread", "Task", "Environment",
-            "Reflection", "DllImport", "Console", "Window", "Registry"
+            @"\bimport\b",
+            @"\busing\s+System\.IO\b",
+            @"\bProcess\b",
+            @"\bAssembly\b",
+            @"\bFile\b",
+            @"\bDirectory\b",
+            @"\bThread\b",
+            @"\bTask\.Run\b",
+            @"\bEnvironment\b",
+            @"\bReflection\b",
+            @"\bDllImport\b",
+            @"\bConsole\b",
+            @"\bWindow\b",
+            @"\bRegistry\b",
+            @"\bnew\s+\w*Stream\b",
+            @"\bnew\s+\w*Reader\b",
+            @"\bnew\s+\w*Writer\b",
+            @"\bActivator\b",
+            @"\bAppDomain\b",
+            @"\bGC\.Collect\b"
         };
 
-        // 금지된 키워드가 포함되어 있는지 확인
-        foreach (var keyword in forbiddenKeywords)
+        // Check for forbidden patterns with word boundaries
+        foreach (var pattern in forbiddenPatterns)
         {
-            if (expression.Contains(keyword))
+            if (Regex.IsMatch(expression, pattern, RegexOptions.IgnoreCase))
             {
-                throw new FxUnsafeExpressionException(keyword);
+                throw new FxUnsafeExpressionException($"Forbidden pattern detected: {pattern}");
             }
         }
 
-        // 추가적인 보안 위험을 차단하기 위한 정규 표현식 검사
-        var dynamicInvokePattern = new Regex(@"\bGetType\b|\bGetMethod\b|\bGetProperty\b|\bInvokeMember\b");
-        if (dynamicInvokePattern.IsMatch(expression))
+        // Enhanced dynamic invoke pattern detection
+        var dangerousPatterns = new[]
         {
-            throw new FxUnsafeExpressionException("Dynamic invoke");
+            @"\bGetType\s*\(\s*\)",
+            @"\bGetMethod\s*\(",
+            @"\bGetProperty\s*\(",
+            @"\bInvokeMember\s*\(",
+            @"\bInvoke\s*\(",
+            @"\.CreateInstance\s*\(",
+            @"Type\.GetType\s*\(",
+            @"typeof\s*\(\s*\w+\s*\)\s*\.\s*GetMethod",
+            @"System\.Reflection",
+            @"this\.GetType\s*\(\s*\)"
+        };
+
+        foreach (var pattern in dangerousPatterns)
+        {
+            if (Regex.IsMatch(expression, pattern, RegexOptions.IgnoreCase))
+            {
+                throw new FxUnsafeExpressionException($"Dangerous reflection pattern: {pattern}");
+            }
         }
 
-        return true; // 위의 모든 검사를 통과하면 true 반환
+        // Check for potential code injection patterns
+        var injectionPatterns = new[]
+        {
+            @"[;{}]",                    // Statement separators
+            @"\bclass\s+\w+",            // Class definitions
+            @"\bnamespace\s+\w+",        // Namespace definitions
+            @"\bwhile\s*\(\s*true\s*\)", // Infinite loops
+            @"\bfor\s*\(\s*;\s*;\s*\)",  // Infinite for loops
+            @"#\s*(region|endregion|if|else|endif)", // Preprocessor directives
+        };
+
+        foreach (var pattern in injectionPatterns)
+        {
+            if (Regex.IsMatch(expression, pattern, RegexOptions.IgnoreCase))
+            {
+                throw new FxUnsafeExpressionException($"Code injection pattern detected: {pattern}");
+            }
+        }
+
+        // Validate expression length to prevent DoS
+        if (expression.Length > 10000)
+        {
+            throw new FxUnsafeExpressionException("Expression too long - potential DoS attack");
+        }
+
+        return true;
     }
 
     /// <summary>

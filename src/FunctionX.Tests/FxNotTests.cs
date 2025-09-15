@@ -12,7 +12,7 @@ public class FxNotTests
         var result = await Fx.EvaluateAsync("NOT(true)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class FxNotTests
         var result = await Fx.EvaluateAsync("NOT(false)", parameters);
 
         // Assert
-        Assert.True((bool)result);
+        Assert.True((bool)result!);
     }
 
     [Fact]
@@ -41,6 +41,6 @@ public class FxNotTests
         var result = await Fx.EvaluateAsync("NOT(@condition)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 }

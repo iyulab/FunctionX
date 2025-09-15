@@ -16,7 +16,7 @@ public class FxAndTests
         var result = await Fx.EvaluateAsync("AND(true, true, true)", parameters);
 
         // Assert
-        Assert.True(condition: (bool)result);
+        Assert.True((bool)result!);
     }
 
     [Fact]
@@ -29,7 +29,7 @@ public class FxAndTests
         var result = await Fx.EvaluateAsync("AND(true, false, true)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class FxAndTests
         var result = await Fx.EvaluateAsync("AND(@condition1, @condition2, @condition3)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class FxAndTests
         var result = await Fx.EvaluateAsync("AND(false, false, false)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]

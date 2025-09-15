@@ -41,7 +41,7 @@ public class FxCountTests
         // Arrange
         var results = new Dictionary<string, object?>
         {
-            { "mixedValues", new object[] {1, null, "apple", "", 5} }
+            { "mixedValues", new object?[] {1, null, "apple", "", 5} }
         };
 
         // Act
@@ -57,7 +57,7 @@ public class FxCountTests
         // Arrange
         var results = new Dictionary<string, object?>
         {
-            { "stringValues", new object[] {"apple", "banana", null, "cherry"} }
+            { "stringValues", new object?[] {"apple", "banana", null, "cherry"} }
         };
 
         // Act

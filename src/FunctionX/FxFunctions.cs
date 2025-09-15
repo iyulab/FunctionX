@@ -2,22 +2,40 @@
 
 namespace FunctionX;
 
+/// <summary>
+/// Contains all Excel-like functions that can be used in FunctionX expressions.
+/// This class provides the runtime context for expression evaluation.
+/// </summary>
 public partial class FxFunctions
 {
     private readonly IDictionary<string, object?> parameters;
 
+    /// <summary>
+    /// Initializes a new instance of FxFunctions with the provided parameters.
+    /// </summary>
+    /// <param name="parameters">Dictionary of parameters that can be referenced in expressions</param>
     public FxFunctions(IDictionary<string, object?> parameters)
     {
         this.parameters = parameters;
     }
 
-    #region private methods...
+    #region Private helper methods
 
+    /// <summary>
+    /// Determines if a value is a numeric type that can be used in calculations.
+    /// </summary>
+    /// <param name="value">The value to check</param>
+    /// <returns>True if the value is a numeric type</returns>
     private static bool IsNumberType(object value)
     {
         return value is int || value is double || value is float || value is decimal;
     }
 
+    /// <summary>
+    /// Filters and converts an enumerable of objects to numeric values, excluding non-numeric items.
+    /// </summary>
+    /// <param name="values">The values to filter and convert</param>
+    /// <returns>An enumerable of double values</returns>
     private static IEnumerable<double> FilterNumericValues(IEnumerable<object> values)
     {
         return values
@@ -25,6 +43,11 @@ public partial class FxFunctions
             .Select(v => Convert.ToDouble(v));
     }
 
+    /// <summary>
+    /// Recursively flattens nested arrays and enumerables into a single sequence.
+    /// </summary>
+    /// <param name="array">The array or enumerable to flatten</param>
+    /// <returns>A flattened sequence of objects</returns>
     private static IEnumerable<object> Flatten(IEnumerable<object> array)
     {
         foreach (var item in array)
@@ -340,9 +363,15 @@ public partial class FxFunctions
         {
             throw new FxValueException(); // #VALUE!
         }
+
+        if (oldValue == null || newValue == null)
+        {
+            throw new FxValueException(); // #VALUE!
+        }
+
         try
         {
-            return text.Replace(oldValue.ToString(), newValue.ToString());
+            return text.Replace(oldValue.ToString()!, newValue.ToString()!);
         }
         catch (System.Exception)
         {
@@ -475,5 +504,222 @@ public partial class FxFunctions
     public static int INT(object value)
     {
         return Convert.ToInt32(value);
+    }
+
+    /// <summary>
+    /// Counts the number of cells in a range that meet a specified condition.
+    /// Similar to Excel's COUNTIF function.
+    /// </summary>
+    /// <param name="range">Array of values to evaluate</param>
+    /// <param name="criteria">Condition to test each value against</param>
+    /// <returns>Count of values meeting the criteria</returns>
+    public static double COUNTIF(object[] range, object criteria)
+    {
+        try
+        {
+            var flattenedRange = Flatten(range);
+            var criteriaString = criteria.ToString() ?? "";
+
+            // Parse criteria - supports >, <, >=, <=, =, <>, and exact matches
+            if (criteriaString.StartsWith(">="))
+            {
+                var threshold = Convert.ToDouble(criteriaString[2..]);
+                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) >= threshold);
+            }
+            else if (criteriaString.StartsWith("<="))
+            {
+                var threshold = Convert.ToDouble(criteriaString[2..]);
+                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) <= threshold);
+            }
+            else if (criteriaString.StartsWith("<>"))
+            {
+                var compareValue = criteriaString[2..];
+                return flattenedRange.Count(v => v?.ToString() != compareValue);
+            }
+            else if (criteriaString.StartsWith(">"))
+            {
+                var threshold = Convert.ToDouble(criteriaString[1..]);
+                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) > threshold);
+            }
+            else if (criteriaString.StartsWith("<"))
+            {
+                var threshold = Convert.ToDouble(criteriaString[1..]);
+                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) < threshold);
+            }
+            else if (criteriaString.StartsWith("="))
+            {
+                var compareValue = criteriaString[1..];
+                return flattenedRange.Count(v => v?.ToString() == compareValue);
+            }
+            else
+            {
+                // Exact match (string or numeric)
+                if (double.TryParse(criteriaString, out double numericCriteria))
+                {
+                    return flattenedRange.Count(v => v != null && IsNumberType(v) && Math.Abs(Convert.ToDouble(v) - numericCriteria) < 0.0000001);
+                }
+                else
+                {
+                    return flattenedRange.Count(v => v?.ToString() == criteriaString);
+                }
+            }
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid criteria in COUNTIF function");
+        }
+    }
+
+    /// <summary>
+    /// Sums the values in a range that meet a specified condition.
+    /// Similar to Excel's SUMIF function.
+    /// </summary>
+    /// <param name="range">Array of values to evaluate</param>
+    /// <param name="criteria">Condition to test each value against</param>
+    /// <param name="sumRange">Optional array of values to sum (if null, uses range)</param>
+    /// <returns>Sum of values meeting the criteria</returns>
+    public static double SUMIF(object[] range, object criteria, object[]? sumRange = null)
+    {
+        try
+        {
+            var flattenedRange = Flatten(range).ToArray();
+            var flattenedSumRange = sumRange != null ? Flatten(sumRange).ToArray() : flattenedRange;
+            var criteriaString = criteria.ToString() ?? "";
+
+            double sum = 0;
+
+            for (int i = 0; i < flattenedRange.Length; i++)
+            {
+                var rangeValue = flattenedRange[i];
+                var sumValue = i < flattenedSumRange.Length ? flattenedSumRange[i] : null;
+
+                bool meetsCriteria = false;
+
+                // Parse criteria - supports >, <, >=, <=, =, <>, and exact matches
+                if (criteriaString.StartsWith(">="))
+                {
+                    var threshold = Convert.ToDouble(criteriaString[2..]);
+                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) >= threshold;
+                }
+                else if (criteriaString.StartsWith("<="))
+                {
+                    var threshold = Convert.ToDouble(criteriaString[2..]);
+                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) <= threshold;
+                }
+                else if (criteriaString.StartsWith("<>"))
+                {
+                    var compareValue = criteriaString[2..];
+                    meetsCriteria = rangeValue?.ToString() != compareValue;
+                }
+                else if (criteriaString.StartsWith(">"))
+                {
+                    var threshold = Convert.ToDouble(criteriaString[1..]);
+                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) > threshold;
+                }
+                else if (criteriaString.StartsWith("<"))
+                {
+                    var threshold = Convert.ToDouble(criteriaString[1..]);
+                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) < threshold;
+                }
+                else if (criteriaString.StartsWith("="))
+                {
+                    var compareValue = criteriaString[1..];
+                    meetsCriteria = rangeValue?.ToString() == compareValue;
+                }
+                else
+                {
+                    // Exact match (string or numeric)
+                    if (double.TryParse(criteriaString, out double numericCriteria))
+                    {
+                        meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Math.Abs(Convert.ToDouble(rangeValue) - numericCriteria) < 0.0000001;
+                    }
+                    else
+                    {
+                        meetsCriteria = rangeValue?.ToString() == criteriaString;
+                    }
+                }
+
+                if (meetsCriteria && sumValue != null && IsNumberType(sumValue))
+                {
+                    sum += Convert.ToDouble(sumValue);
+                }
+            }
+
+            return sum;
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid criteria or range in SUMIF function");
+        }
+    }
+
+    /// <summary>
+    /// Rounds a number to a specified number of decimal places.
+    /// </summary>
+    /// <param name="number">The number to round</param>
+    /// <param name="digits">Number of decimal places (can be negative)</param>
+    /// <returns>Rounded number</returns>
+    public static double ROUND(object number, object digits)
+    {
+        try
+        {
+            var num = Convert.ToDouble(number);
+            var decimals = Convert.ToInt32(digits);
+
+            // Handle negative decimal places (round to tens, hundreds, etc.)
+            if (decimals < 0)
+            {
+                var multiplier = Math.Pow(10, -decimals);
+                return Math.Round(num / multiplier) * multiplier;
+            }
+
+            return Math.Round(num, decimals, MidpointRounding.AwayFromZero);
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid number or digits in ROUND function");
+        }
+    }
+
+    /// <summary>
+    /// Returns the absolute value of a number.
+    /// </summary>
+    /// <param name="number">The number</param>
+    /// <returns>Absolute value</returns>
+    public static double ABS(object number)
+    {
+        try
+        {
+            return Math.Abs(Convert.ToDouble(number));
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid number in ABS function");
+        }
+    }
+
+    /// <summary>
+    /// Checks if a value is blank (null or empty string).
+    /// </summary>
+    /// <param name="value">Value to check</param>
+    /// <returns>True if blank, false otherwise</returns>
+    public static bool ISBLANK(object? value)
+    {
+        return value == null ||
+               (value is string str && string.IsNullOrWhiteSpace(str)) ||
+               (value is DBNull);
+    }
+
+    /// <summary>
+    /// Checks if a value is a number.
+    /// </summary>
+    /// <param name="value">Value to check</param>
+    /// <returns>True if numeric, false otherwise</returns>
+    public static bool ISNUMBER(object? value)
+    {
+        if (value == null || value is DBNull) return false;
+
+        return IsNumberType(value) ||
+               (value is string str && double.TryParse(str, out _));
     }
 }

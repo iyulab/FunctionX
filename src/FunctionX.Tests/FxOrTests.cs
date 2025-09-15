@@ -12,7 +12,7 @@ public class FxOrTests
         var result = await Fx.EvaluateAsync("OR(true, false, false)", parameters);
 
         // Assert
-        Assert.True((bool)result);
+        Assert.True((bool)result!);
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class FxOrTests
         var result = await Fx.EvaluateAsync("OR(false, false, false)", parameters);
 
         // Assert
-        Assert.False((bool)result);
+        Assert.False((bool)result!);
     }
 
     [Fact]
@@ -42,6 +42,6 @@ public class FxOrTests
         var result = await Fx.EvaluateAsync("OR(@condition1, @condition2)", parameters);
 
         // Assert
-        Assert.True((bool)result);
+        Assert.True((bool)result!);
     }
 }
