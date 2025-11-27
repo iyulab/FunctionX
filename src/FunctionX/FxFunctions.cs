@@ -44,6 +44,52 @@ public partial class FxFunctions
     }
 
     /// <summary>
+    /// Checks if a value meets the specified criteria string (supports &gt;, &lt;, &gt;=, &lt;=, =, &lt;&gt;, and exact match).
+    /// </summary>
+    /// <param name="value">The value to test.</param>
+    /// <param name="criteriaString">The criteria string (e.g., "&gt;10", "&lt;=5", "&lt;&gt;text", "=value").</param>
+    /// <returns>True if the value meets the criteria.</returns>
+    private static bool MeetsCriteria(object? value, string criteriaString)
+    {
+        if (criteriaString.StartsWith(">="))
+        {
+            var threshold = Convert.ToDouble(criteriaString[2..]);
+            return value != null && IsNumberType(value) && Convert.ToDouble(value) >= threshold;
+        }
+        if (criteriaString.StartsWith("<="))
+        {
+            var threshold = Convert.ToDouble(criteriaString[2..]);
+            return value != null && IsNumberType(value) && Convert.ToDouble(value) <= threshold;
+        }
+        if (criteriaString.StartsWith("<>"))
+        {
+            var compareValue = criteriaString[2..];
+            return value?.ToString() != compareValue;
+        }
+        if (criteriaString.StartsWith(">"))
+        {
+            var threshold = Convert.ToDouble(criteriaString[1..]);
+            return value != null && IsNumberType(value) && Convert.ToDouble(value) > threshold;
+        }
+        if (criteriaString.StartsWith("<"))
+        {
+            var threshold = Convert.ToDouble(criteriaString[1..]);
+            return value != null && IsNumberType(value) && Convert.ToDouble(value) < threshold;
+        }
+        if (criteriaString.StartsWith("="))
+        {
+            var compareValue = criteriaString[1..];
+            return value?.ToString() == compareValue;
+        }
+        // Exact match (string or numeric)
+        if (double.TryParse(criteriaString, out double numericCriteria))
+        {
+            return value != null && IsNumberType(value) && Math.Abs(Convert.ToDouble(value) - numericCriteria) < 0.0000001;
+        }
+        return value?.ToString() == criteriaString;
+    }
+
+    /// <summary>
     /// Recursively flattens nested arrays and enumerables into a single sequence.
     /// </summary>
     /// <param name="array">The array or enumerable to flatten</param>
@@ -68,6 +114,11 @@ public partial class FxFunctions
 
     #endregion
 
+    /// <summary>
+    /// Retrieves parameter value as an array of objects.
+    /// </summary>
+    /// <param name="name">The parameter name to retrieve.</param>
+    /// <returns>Array of objects. Returns empty array if null, single-element array for scalar values.</returns>
     public object[] GetItems(string name)
     {
         var v = parameters[name];
@@ -93,6 +144,12 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Retrieves a single parameter value.
+    /// </summary>
+    /// <param name="name">The parameter name to retrieve.</param>
+    /// <returns>The parameter value, or null if not found.</returns>
+    /// <exception cref="FxReferenceException">Thrown when the parameter does not exist.</exception>
     public object? GetItem(string name)
     {
         if (!parameters.ContainsKey(name))
@@ -102,6 +159,11 @@ public partial class FxFunctions
         return parameters[name];
     }
 
+    /// <summary>
+    /// Retrieves parameter value as an array of doubles.
+    /// </summary>
+    /// <param name="name">The parameter name to retrieve.</param>
+    /// <returns>Array of double values. Returns empty array if null or not an array.</returns>
     public double[] GetValues(string name)
     {
         var v = parameters[name];
@@ -114,6 +176,14 @@ public partial class FxFunctions
         return [];
     }
 
+    /// <summary>
+    /// Retrieves a single parameter value as a double.
+    /// </summary>
+    /// <param name="name">The parameter name to retrieve.</param>
+    /// <returns>The parameter value converted to double.</returns>
+    /// <exception cref="FxReferenceException">Thrown when the parameter does not exist.</exception>
+    /// <exception cref="FxNAException">Thrown when the parameter value is null.</exception>
+    /// <exception cref="FxValueException">Thrown when the value cannot be converted to double.</exception>
     public double GetValue(string name)
     {
         if (!parameters.ContainsKey(name))
@@ -132,6 +202,12 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Returns the sum of all numeric values. Equivalent to Excel's SUM function.
+    /// </summary>
+    /// <param name="values">Values to sum. Arrays are flattened automatically.</param>
+    /// <returns>Sum of all numeric values.</returns>
+    /// <exception cref="FxValueException">Thrown when values cannot be converted.</exception>
     public static double SUM(params object[] values)
     {
         try
@@ -145,6 +221,11 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Returns the average of all numeric values. Equivalent to Excel's AVERAGE function.
+    /// </summary>
+    /// <param name="values">Values to average. Arrays are flattened automatically.</param>
+    /// <returns>Average of all numeric values, or NaN if no valid values.</returns>
     public static double AVERAGE(params object[] values)
     {
         var flattenedValues = Flatten(values).Where(v => v != null).Select(v =>
@@ -167,6 +248,11 @@ public partial class FxFunctions
         return flattenedValues.Average();
     }
 
+    /// <summary>
+    /// Returns the largest value from a set of values. Equivalent to Excel's MAX function.
+    /// </summary>
+    /// <param name="values">Values to compare. Arrays are flattened automatically.</param>
+    /// <returns>Maximum value, or NaN if no valid values.</returns>
     public static double MAX(params object[] values)
     {
         var flattenedValues = Flatten(values).Where(v => v != null).Select(v =>
@@ -189,6 +275,11 @@ public partial class FxFunctions
         return flattenedValues.Max();
     }
 
+    /// <summary>
+    /// Returns the smallest value from a set of values. Equivalent to Excel's MIN function.
+    /// </summary>
+    /// <param name="values">Values to compare. Arrays are flattened automatically.</param>
+    /// <returns>Minimum value, or NaN if no valid values.</returns>
     public static double MIN(params object[] values)
     {
         if (values.Length == 0) return double.NaN;
@@ -197,17 +288,33 @@ public partial class FxFunctions
         return values.Where(v => v != null).Select(v => Convert.ToDouble(v)).Min();
     }
 
+    /// <summary>
+    /// Counts the number of numeric values. Equivalent to Excel's COUNT function.
+    /// </summary>
+    /// <param name="values">Values to count. Only numeric values are counted.</param>
+    /// <returns>Count of numeric values.</returns>
     public static double COUNT(params object[] values)
     {
         var flattenedValues = Flatten(values).Where(v => v != null && IsNumberType(v));
         return flattenedValues.Count();
     }
 
+    /// <summary>
+    /// Counts the number of non-null values. Equivalent to Excel's COUNTA function.
+    /// </summary>
+    /// <param name="values">Values to count. All non-null values are counted.</param>
+    /// <returns>Count of non-null values.</returns>
     public static double COUNTA(params object[] values)
     {
         return Flatten(values).Count(v => v != null);
     }
 
+    /// <summary>
+    /// Returns TRUE if all arguments are TRUE. Equivalent to Excel's AND function.
+    /// </summary>
+    /// <param name="values">Boolean values to evaluate.</param>
+    /// <returns>TRUE if all values are TRUE, FALSE otherwise.</returns>
+    /// <exception cref="FxValueException">Thrown when values cannot be converted to boolean.</exception>
     public static bool AND(params object[] values)
     {
         try
@@ -220,26 +327,54 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Returns TRUE if any argument is TRUE. Equivalent to Excel's OR function.
+    /// </summary>
+    /// <param name="values">Boolean values to evaluate.</param>
+    /// <returns>TRUE if any value is TRUE, FALSE otherwise.</returns>
     public static bool OR(params object[] values)
     {
         return Flatten(values).Any(v => v != null && Convert.ToBoolean(v));
     }
 
+    /// <summary>
+    /// Returns the logical inverse of a value. Equivalent to Excel's NOT function.
+    /// </summary>
+    /// <param name="value">Boolean value to invert.</param>
+    /// <returns>TRUE if value is FALSE or null, FALSE otherwise.</returns>
     public static bool NOT(object value)
     {
         return value == null || !Convert.ToBoolean(value);
     }
 
+    /// <summary>
+    /// Returns TRUE if an odd number of arguments are TRUE. Equivalent to Excel's XOR function.
+    /// </summary>
+    /// <param name="values">Boolean values to evaluate.</param>
+    /// <returns>TRUE if an odd number of values are TRUE.</returns>
     public static bool XOR(params object[] values)
     {
         return Flatten(values).Count(v => v != null && Convert.ToBoolean(v)) % 2 == 1;
     }
 
+    /// <summary>
+    /// Returns one value if condition is TRUE, another if FALSE. Equivalent to Excel's IF function.
+    /// </summary>
+    /// <param name="condition">The condition to evaluate.</param>
+    /// <param name="trueValue">Value returned if condition is TRUE.</param>
+    /// <param name="falseValue">Value returned if condition is FALSE.</param>
+    /// <returns>trueValue or falseValue based on condition.</returns>
     public static object IF(object condition, object trueValue, object falseValue)
     {
         return Convert.ToBoolean(condition) ? trueValue : falseValue;
     }
 
+    /// <summary>
+    /// Checks multiple conditions and returns corresponding value for first TRUE. Equivalent to Excel's IFS function.
+    /// </summary>
+    /// <param name="values">Pairs of condition and value (condition1, value1, condition2, value2, ...).</param>
+    /// <returns>Value corresponding to first TRUE condition, or null if none match.</returns>
+    /// <exception cref="FxValueException">Thrown when arguments count is not even.</exception>
     public static object? IFS(params object[] values)
     {
         if (values.Length % 2 != 0)
@@ -258,6 +393,13 @@ public partial class FxFunctions
         return null;
     }
 
+    /// <summary>
+    /// Evaluates value against a list of cases and returns first match. Equivalent to Excel's SWITCH function.
+    /// </summary>
+    /// <param name="value">The value to match against cases.</param>
+    /// <param name="casesAndValues">Pairs of case and result. If odd count, last value is default.</param>
+    /// <returns>Result for matching case, default value, or null.</returns>
+    /// <exception cref="ArgumentException">Thrown when fewer than 2 arguments provided.</exception>
     public static object? SWITCH(object value, params object[] casesAndValues)
     {
         if (casesAndValues.Length < 2)
@@ -281,13 +423,24 @@ public partial class FxFunctions
         return hasDefaultValue ? casesAndValues[^1] : null;
     }
 
-
+    /// <summary>
+    /// Concatenates multiple values into a single string. Equivalent to Excel's CONCAT function.
+    /// </summary>
+    /// <param name="values">Values to concatenate. Arrays are flattened.</param>
+    /// <returns>Concatenated string.</returns>
     public static string CONCAT(params object[] values)
     {
         var flattenedValues = Flatten(values);
         return string.Join("", flattenedValues);
     }
 
+    /// <summary>
+    /// Returns leftmost characters from a string. Equivalent to Excel's LEFT function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <param name="count">Number of characters to return.</param>
+    /// <returns>Leftmost characters.</returns>
+    /// <exception cref="FxValueException">Thrown when input is not a string or count is invalid.</exception>
     public static string LEFT(object input, object count)
     {
         if (input is not string text)
@@ -304,6 +457,12 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Returns rightmost characters from a string. Equivalent to Excel's RIGHT function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <param name="count">Number of characters to return.</param>
+    /// <returns>Rightmost characters, or empty string if input is not a string.</returns>
     public static string RIGHT(object input, object count)
     {
         if (input is string text)
@@ -316,6 +475,13 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Returns characters from middle of a string. Equivalent to Excel's MID function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <param name="start">Starting position (1-based).</param>
+    /// <param name="count">Number of characters to return.</param>
+    /// <returns>Substring, or empty string if input is not a string.</returns>
     public static string MID(object input, object start, object count)
     {
         if (input is string text)
@@ -333,21 +499,42 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Removes leading and trailing whitespace. Equivalent to Excel's TRIM function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <returns>Trimmed string, or empty string if input is not a string.</returns>
     public static string TRIM(object input)
     {
         return input is string text ? text.Trim() : string.Empty;
     }
 
+    /// <summary>
+    /// Converts text to uppercase. Equivalent to Excel's UPPER function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <returns>Uppercase string, or empty string if input is not a string.</returns>
     public static string UPPER(object input)
     {
         return input is string text ? text.ToUpper() : string.Empty;
     }
 
+    /// <summary>
+    /// Converts text to lowercase. Equivalent to Excel's LOWER function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <returns>Lowercase string, or empty string if input is not a string.</returns>
     public static string LOWER(object input)
     {
         return input is string text ? text.ToLower() : string.Empty;
     }
 
+    /// <summary>
+    /// Converts text to title case (first letter of each word capitalized). Equivalent to Excel's PROPER function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <returns>Title case string.</returns>
+    /// <exception cref="FxValueException">Thrown when input is not a string.</exception>
     public static string PROPER(object input)
     {
         if (input is not string text)
@@ -357,6 +544,14 @@ public partial class FxFunctions
         return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(text.ToLower());
     }
 
+    /// <summary>
+    /// Replaces occurrences of a substring. Equivalent to Excel's SUBSTITUTE function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <param name="oldValue">Text to find.</param>
+    /// <param name="newValue">Replacement text.</param>
+    /// <returns>String with replacements made.</returns>
+    /// <exception cref="FxValueException">Thrown when input is not a string or arguments are null.</exception>
     public static string REPLACE(object input, object oldValue, object newValue)
     {
         if (input is not string text)
@@ -379,6 +574,12 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Returns the length of a string. Equivalent to Excel's LEN function.
+    /// </summary>
+    /// <param name="input">The source string.</param>
+    /// <returns>Number of characters.</returns>
+    /// <exception cref="FxValueException">Thrown when input is not a string.</exception>
     public static int LEN(object input)
     {
         if (input is not string text)
@@ -388,6 +589,14 @@ public partial class FxFunctions
         return text.Length;
     }
 
+    /// <summary>
+    /// Returns a value from a range using row and column indexes. Equivalent to Excel's INDEX function.
+    /// </summary>
+    /// <param name="range">The array to retrieve from.</param>
+    /// <param name="rowIndexObj">Row index (1-based).</param>
+    /// <param name="columnIndexObj">Column index (1-based) or column name for dictionaries.</param>
+    /// <returns>Value at specified position, or null if out of range.</returns>
+    /// <exception cref="FxReferenceException">Thrown when row index is out of range.</exception>
     public static object? INDEX(object[] range, object rowIndexObj, object columnIndexObj)
     {
         int rowIndex = Convert.ToInt32(rowIndexObj);
@@ -449,6 +658,15 @@ public partial class FxFunctions
         return null;
     }
 
+    /// <summary>
+    /// Searches first column and returns value from specified column. Equivalent to Excel's VLOOKUP function.
+    /// </summary>
+    /// <param name="key">Value to search for in first column.</param>
+    /// <param name="range">Array of dictionaries to search.</param>
+    /// <param name="pColumnIndex">Column index (1-based) to return value from.</param>
+    /// <param name="pExactMatch">TRUE for exact match (default), FALSE for approximate.</param>
+    /// <returns>Found value, or null if not found.</returns>
+    /// <exception cref="ArgumentException">Thrown when range format is invalid.</exception>
     public static object? VLOOKUP(object key, object range, object pColumnIndex, object? pExactMatch)
     {
         var columnIndex = Convert.ToInt32(pColumnIndex) - 1;
@@ -489,6 +707,12 @@ public partial class FxFunctions
         return null;
     }
 
+    /// <summary>
+    /// Returns unique values from a range. Equivalent to Excel's UNIQUE function.
+    /// </summary>
+    /// <param name="values">Values to filter for uniqueness.</param>
+    /// <returns>Array of unique values.</returns>
+    /// <exception cref="FxExpressionException">Thrown when operation fails.</exception>
     public static object[] UNIQUE(params object[] values)
     {
         try
@@ -501,6 +725,11 @@ public partial class FxFunctions
         }
     }
 
+    /// <summary>
+    /// Truncates a number to an integer. Equivalent to Excel's INT function.
+    /// </summary>
+    /// <param name="value">The number to truncate.</param>
+    /// <returns>Integer portion of the number.</returns>
     public static int INT(object value)
     {
         return Convert.ToInt32(value);
@@ -519,50 +748,7 @@ public partial class FxFunctions
         {
             var flattenedRange = Flatten(range);
             var criteriaString = criteria.ToString() ?? "";
-
-            // Parse criteria - supports >, <, >=, <=, =, <>, and exact matches
-            if (criteriaString.StartsWith(">="))
-            {
-                var threshold = Convert.ToDouble(criteriaString[2..]);
-                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) >= threshold);
-            }
-            else if (criteriaString.StartsWith("<="))
-            {
-                var threshold = Convert.ToDouble(criteriaString[2..]);
-                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) <= threshold);
-            }
-            else if (criteriaString.StartsWith("<>"))
-            {
-                var compareValue = criteriaString[2..];
-                return flattenedRange.Count(v => v?.ToString() != compareValue);
-            }
-            else if (criteriaString.StartsWith(">"))
-            {
-                var threshold = Convert.ToDouble(criteriaString[1..]);
-                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) > threshold);
-            }
-            else if (criteriaString.StartsWith("<"))
-            {
-                var threshold = Convert.ToDouble(criteriaString[1..]);
-                return flattenedRange.Count(v => v != null && IsNumberType(v) && Convert.ToDouble(v) < threshold);
-            }
-            else if (criteriaString.StartsWith("="))
-            {
-                var compareValue = criteriaString[1..];
-                return flattenedRange.Count(v => v?.ToString() == compareValue);
-            }
-            else
-            {
-                // Exact match (string or numeric)
-                if (double.TryParse(criteriaString, out double numericCriteria))
-                {
-                    return flattenedRange.Count(v => v != null && IsNumberType(v) && Math.Abs(Convert.ToDouble(v) - numericCriteria) < 0.0000001);
-                }
-                else
-                {
-                    return flattenedRange.Count(v => v?.ToString() == criteriaString);
-                }
-            }
+            return flattenedRange.Count(v => MeetsCriteria(v, criteriaString));
         }
         catch (System.Exception)
         {
@@ -587,69 +773,69 @@ public partial class FxFunctions
             var criteriaString = criteria.ToString() ?? "";
 
             double sum = 0;
-
             for (int i = 0; i < flattenedRange.Length; i++)
             {
                 var rangeValue = flattenedRange[i];
                 var sumValue = i < flattenedSumRange.Length ? flattenedSumRange[i] : null;
 
-                bool meetsCriteria = false;
-
-                // Parse criteria - supports >, <, >=, <=, =, <>, and exact matches
-                if (criteriaString.StartsWith(">="))
-                {
-                    var threshold = Convert.ToDouble(criteriaString[2..]);
-                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) >= threshold;
-                }
-                else if (criteriaString.StartsWith("<="))
-                {
-                    var threshold = Convert.ToDouble(criteriaString[2..]);
-                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) <= threshold;
-                }
-                else if (criteriaString.StartsWith("<>"))
-                {
-                    var compareValue = criteriaString[2..];
-                    meetsCriteria = rangeValue?.ToString() != compareValue;
-                }
-                else if (criteriaString.StartsWith(">"))
-                {
-                    var threshold = Convert.ToDouble(criteriaString[1..]);
-                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) > threshold;
-                }
-                else if (criteriaString.StartsWith("<"))
-                {
-                    var threshold = Convert.ToDouble(criteriaString[1..]);
-                    meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Convert.ToDouble(rangeValue) < threshold;
-                }
-                else if (criteriaString.StartsWith("="))
-                {
-                    var compareValue = criteriaString[1..];
-                    meetsCriteria = rangeValue?.ToString() == compareValue;
-                }
-                else
-                {
-                    // Exact match (string or numeric)
-                    if (double.TryParse(criteriaString, out double numericCriteria))
-                    {
-                        meetsCriteria = rangeValue != null && IsNumberType(rangeValue) && Math.Abs(Convert.ToDouble(rangeValue) - numericCriteria) < 0.0000001;
-                    }
-                    else
-                    {
-                        meetsCriteria = rangeValue?.ToString() == criteriaString;
-                    }
-                }
-
-                if (meetsCriteria && sumValue != null && IsNumberType(sumValue))
+                if (MeetsCriteria(rangeValue, criteriaString) && sumValue != null && IsNumberType(sumValue))
                 {
                     sum += Convert.ToDouble(sumValue);
                 }
             }
-
             return sum;
         }
         catch (System.Exception)
         {
             throw new FxValueException("Invalid criteria or range in SUMIF function");
+        }
+    }
+
+    /// <summary>
+    /// Calculates the average of values in a range that meet a specified condition.
+    /// Similar to Excel's AVERAGEIF function.
+    /// </summary>
+    /// <param name="range">Array of values to evaluate.</param>
+    /// <param name="criteria">Condition to test each value against.</param>
+    /// <param name="averageRange">Optional array of values to average (if null, uses range).</param>
+    /// <returns>Average of values meeting the criteria.</returns>
+    /// <exception cref="FxDivideByZeroException">Thrown when no values meet the criteria.</exception>
+    /// <exception cref="FxValueException">Thrown when criteria or range is invalid.</exception>
+    public static double AVERAGEIF(object[] range, object criteria, object[]? averageRange = null)
+    {
+        try
+        {
+            var flattenedRange = Flatten(range).ToArray();
+            var flattenedAvgRange = averageRange != null ? Flatten(averageRange).ToArray() : flattenedRange;
+            var criteriaString = criteria.ToString() ?? "";
+
+            double sum = 0;
+            int count = 0;
+            for (int i = 0; i < flattenedRange.Length; i++)
+            {
+                var rangeValue = flattenedRange[i];
+                var avgValue = i < flattenedAvgRange.Length ? flattenedAvgRange[i] : null;
+
+                if (MeetsCriteria(rangeValue, criteriaString) && avgValue != null && IsNumberType(avgValue))
+                {
+                    sum += Convert.ToDouble(avgValue);
+                    count++;
+                }
+            }
+
+            if (count == 0)
+            {
+                throw new FxDivideByZeroException("No values meet the criteria in AVERAGEIF");
+            }
+            return sum / count;
+        }
+        catch (FxException)
+        {
+            throw;
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid criteria or range in AVERAGEIF function");
         }
     }
 
@@ -695,6 +881,91 @@ public partial class FxFunctions
         catch (System.Exception)
         {
             throw new FxValueException("Invalid number in ABS function");
+        }
+    }
+
+    /// <summary>
+    /// Returns the square root of a number. Equivalent to Excel's SQRT function.
+    /// </summary>
+    /// <param name="number">The number (must be non-negative).</param>
+    /// <returns>Square root of the number.</returns>
+    /// <exception cref="FxNumException">Thrown when number is negative.</exception>
+    /// <exception cref="FxValueException">Thrown when value cannot be converted.</exception>
+    public static double SQRT(object number)
+    {
+        try
+        {
+            var num = Convert.ToDouble(number);
+            if (num < 0)
+            {
+                throw new FxNumException("Cannot take square root of negative number");
+            }
+            return Math.Sqrt(num);
+        }
+        catch (FxException)
+        {
+            throw;
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid number in SQRT function");
+        }
+    }
+
+    /// <summary>
+    /// Returns a number raised to a power. Equivalent to Excel's POWER function.
+    /// </summary>
+    /// <param name="number">The base number.</param>
+    /// <param name="power">The exponent.</param>
+    /// <returns>Number raised to the power.</returns>
+    /// <exception cref="FxValueException">Thrown when values cannot be converted.</exception>
+    public static double POWER(object number, object power)
+    {
+        try
+        {
+            var num = Convert.ToDouble(number);
+            var exp = Convert.ToDouble(power);
+            return Math.Pow(num, exp);
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid number or power in POWER function");
+        }
+    }
+
+    /// <summary>
+    /// Returns the remainder after division. Equivalent to Excel's MOD function.
+    /// </summary>
+    /// <param name="number">The dividend.</param>
+    /// <param name="divisor">The divisor.</param>
+    /// <returns>Remainder after division.</returns>
+    /// <exception cref="FxDivideByZeroException">Thrown when divisor is zero.</exception>
+    /// <exception cref="FxValueException">Thrown when values cannot be converted.</exception>
+    public static double MOD(object number, object divisor)
+    {
+        try
+        {
+            var num = Convert.ToDouble(number);
+            var div = Convert.ToDouble(divisor);
+            if (Math.Abs(div) < 0.0000001)
+            {
+                throw new FxDivideByZeroException();
+            }
+            // Excel MOD behavior: result has same sign as divisor
+            var result = num % div;
+            if (result != 0 && (result < 0) != (div < 0))
+            {
+                result += div;
+            }
+            return result;
+        }
+        catch (FxException)
+        {
+            throw;
+        }
+        catch (System.Exception)
+        {
+            throw new FxValueException("Invalid number or divisor in MOD function");
         }
     }
 

@@ -19,6 +19,62 @@ public static partial class Fx
 {
     private static readonly ConcurrentDictionary<string, Script<object>> _compiledScriptCache = new();
     private static readonly ConcurrentDictionary<string, ScriptOptions> _optionsCache = new();
+    private static readonly object _cacheLock = new();
+
+    /// <summary>
+    /// Maximum number of compiled scripts to keep in cache.
+    /// When exceeded, oldest entries are removed.
+    /// </summary>
+    public static int MaxCacheSize { get; set; } = 1000;
+
+    // Pre-compiled regex patterns for security validation (performance optimization)
+    private static readonly Regex[] ForbiddenPatterns =
+    [
+        new(@"\bimport\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\busing\s+System\.IO\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bProcess\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bAssembly\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bFile\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bDirectory\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bThread\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bTask\.Run\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bEnvironment\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bReflection\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bDllImport\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bConsole\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bWindow\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bRegistry\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bnew\s+\w*Stream\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bnew\s+\w*Reader\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bnew\s+\w*Writer\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bActivator\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bAppDomain\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bGC\.Collect\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
+
+    private static readonly Regex[] DangerousPatterns =
+    [
+        new(@"\bGetType\s*\(\s*\)", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bGetMethod\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bGetProperty\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bInvokeMember\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bInvoke\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\.CreateInstance\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"Type\.GetType\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"typeof\s*\(\s*\w+\s*\)\s*\.\s*GetMethod", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"System\.Reflection", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"this\.GetType\s*\(\s*\)", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
+
+    private static readonly Regex[] InjectionPatterns =
+    [
+        new(@"[;{}]", RegexOptions.Compiled),
+        new(@"\bclass\s+\w+", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bnamespace\s+\w+", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bwhile\s*\(\s*true\s*\)", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"\bfor\s*\(\s*;\s*;\s*\)", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"#\s*(region|endregion|if|else|endif)", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
 
     /// <summary>
     /// Clears the compilation cache. Use when memory optimization is needed.
@@ -27,15 +83,32 @@ public static partial class Fx
     {
         _compiledScriptCache.Clear();
         _optionsCache.Clear();
-        GC.Collect(); // Force garbage collection after clearing cache
     }
 
     /// <summary>
-    /// Gets the current cache statistics for monitoring performance
+    /// Gets the current cache statistics for monitoring performance.
     /// </summary>
+    /// <returns>A tuple containing the count of compiled scripts and options cache entries.</returns>
     public static (int CompiledScripts, int OptionsCache) GetCacheStatistics()
     {
         return (_compiledScriptCache.Count, _optionsCache.Count);
+    }
+
+    private static void TrimCacheIfNeeded()
+    {
+        if (_compiledScriptCache.Count <= MaxCacheSize) return;
+
+        lock (_cacheLock)
+        {
+            if (_compiledScriptCache.Count <= MaxCacheSize) return;
+
+            // Remove ~20% of entries when cache is full
+            var keysToRemove = _compiledScriptCache.Keys.Take(_compiledScriptCache.Count / 5).ToList();
+            foreach (var key in keysToRemove)
+            {
+                _compiledScriptCache.TryRemove(key, out _);
+            }
+        }
     }
 
     /// <summary>
@@ -80,19 +153,24 @@ public static partial class Fx
             Debug.WriteLine($"Expression: {script}");
 #endif
 
+            // Trim cache if needed to prevent unbounded memory growth
+            TrimCacheIfNeeded();
+
             // Create cache key for options
             var optionsKey = customFuncType?.FullName ?? "default";
             var options = _optionsCache.GetOrAdd(optionsKey, _ =>
             {
+                var imports = customFuncType?.Namespace is string ns
+                    ? new[] { "System", "System.Linq", ns }
+                    : new[] { "System", "System.Linq" };
+
                 var opts = ScriptOptions.Default
-                    .WithImports("System", "System.Linq")
+                    .WithImports(imports)
                     .AddReferences(Assembly.Load("System.Core"));
 
                 if (customFuncType != null)
                 {
-                    opts = opts
-                        .AddReferences(customFuncType.Assembly)
-                        .WithImports(customFuncType.Namespace);
+                    opts = opts.AddReferences(customFuncType.Assembly);
                 }
 
                 return opts;
@@ -135,91 +213,40 @@ public static partial class Fx
         }
     }
 
-    private static bool CheckSafeExpression(string expression)
+    private static void CheckSafeExpression(string expression)
     {
-        // Enhanced security validation with regex patterns
-        var forbiddenPatterns = new[]
-        {
-            @"\bimport\b",
-            @"\busing\s+System\.IO\b",
-            @"\bProcess\b",
-            @"\bAssembly\b",
-            @"\bFile\b",
-            @"\bDirectory\b",
-            @"\bThread\b",
-            @"\bTask\.Run\b",
-            @"\bEnvironment\b",
-            @"\bReflection\b",
-            @"\bDllImport\b",
-            @"\bConsole\b",
-            @"\bWindow\b",
-            @"\bRegistry\b",
-            @"\bnew\s+\w*Stream\b",
-            @"\bnew\s+\w*Reader\b",
-            @"\bnew\s+\w*Writer\b",
-            @"\bActivator\b",
-            @"\bAppDomain\b",
-            @"\bGC\.Collect\b"
-        };
-
-        // Check for forbidden patterns with word boundaries
-        foreach (var pattern in forbiddenPatterns)
-        {
-            if (Regex.IsMatch(expression, pattern, RegexOptions.IgnoreCase))
-            {
-                throw new FxUnsafeExpressionException($"Forbidden pattern detected: {pattern}");
-            }
-        }
-
-        // Enhanced dynamic invoke pattern detection
-        var dangerousPatterns = new[]
-        {
-            @"\bGetType\s*\(\s*\)",
-            @"\bGetMethod\s*\(",
-            @"\bGetProperty\s*\(",
-            @"\bInvokeMember\s*\(",
-            @"\bInvoke\s*\(",
-            @"\.CreateInstance\s*\(",
-            @"Type\.GetType\s*\(",
-            @"typeof\s*\(\s*\w+\s*\)\s*\.\s*GetMethod",
-            @"System\.Reflection",
-            @"this\.GetType\s*\(\s*\)"
-        };
-
-        foreach (var pattern in dangerousPatterns)
-        {
-            if (Regex.IsMatch(expression, pattern, RegexOptions.IgnoreCase))
-            {
-                throw new FxUnsafeExpressionException($"Dangerous reflection pattern: {pattern}");
-            }
-        }
-
-        // Check for potential code injection patterns
-        var injectionPatterns = new[]
-        {
-            @"[;{}]",                    // Statement separators
-            @"\bclass\s+\w+",            // Class definitions
-            @"\bnamespace\s+\w+",        // Namespace definitions
-            @"\bwhile\s*\(\s*true\s*\)", // Infinite loops
-            @"\bfor\s*\(\s*;\s*;\s*\)",  // Infinite for loops
-            @"#\s*(region|endregion|if|else|endif)", // Preprocessor directives
-        };
-
-        foreach (var pattern in injectionPatterns)
-        {
-            if (Regex.IsMatch(expression, pattern, RegexOptions.IgnoreCase))
-            {
-                throw new FxUnsafeExpressionException($"Code injection pattern detected: {pattern}");
-            }
-        }
-
-        // Validate expression length to prevent DoS
+        // Validate expression length first (fast check)
         if (expression.Length > 10000)
         {
             throw new FxUnsafeExpressionException("Expression too long - potential DoS attack");
         }
 
-        return true;
+        // Check for forbidden patterns using pre-compiled regex (performance optimized)
+        foreach (var regex in ForbiddenPatterns)
+        {
+            if (regex.IsMatch(expression))
+            {
+                throw new FxUnsafeExpressionException($"Forbidden pattern detected: {regex}");
+            }
+        }
+
+        // Check for dangerous reflection patterns
+        foreach (var regex in DangerousPatterns)
+        {
+            if (regex.IsMatch(expression))
+            {
+                throw new FxUnsafeExpressionException($"Dangerous reflection pattern: {regex}");
+            }
+        }
+
+        // Check for code injection patterns
+        foreach (var regex in InjectionPatterns)
+        {
+            if (regex.IsMatch(expression))
+            {
+                throw new FxUnsafeExpressionException($"Code injection pattern detected: {regex}");
+            }
+        }
     }
 
     /// <summary>
@@ -247,6 +274,11 @@ public static partial class Fx
     // ouput2: "try { return INT(@a) / INT(@b); } catch { return "ERROR"; }"
     // input3: "IFERROR(IFERROR(INT(@a) / INT(@b), "ERROR"), "ON ERROR")"
     // ouput3: "try { return (Func<object>)(() => { try { return INT(@a) / INT(@b); } catch { return "ERROR"; } })(); } catch { return "ON ERROR"; }"
+    /// <summary>
+    /// Transforms IFERROR expressions to executable try-catch blocks.
+    /// </summary>
+    /// <param name="input">The input expression containing IFERROR functions.</param>
+    /// <returns>The transformed expression with try-catch blocks.</returns>
     public static string TransformToTryCatchBlocks(string input)
     {
         return TransformIFERROR(input, false);
