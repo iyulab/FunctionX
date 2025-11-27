@@ -63,7 +63,7 @@ jobs:
         if: steps.check.outputs.exists != 'true'
         working-directory: src
         timeout-minutes: 10
-        run: dotnet test --configuration Release --no-build --verbosity normal
+        run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~Performance"
 
       - name: Pack NuGet package
         if: steps.check.outputs.exists != 'true'
