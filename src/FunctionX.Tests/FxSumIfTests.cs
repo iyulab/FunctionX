@@ -162,7 +162,7 @@ public class FxSumIfTests
         var parameters = new Dictionary<string, object?>
         {
             { "criteria_data", new object[] { 1, 2, 3, 4, 5 } },
-            { "sum_data", new object[] { 10, "text", 30, null, 50 } }
+            { "sum_data", new object?[] { 10, "text", 30, null, 50 } }
         };
 
         // Act

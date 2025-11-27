@@ -140,7 +140,7 @@ public class FxCountIfTests
         // Arrange
         var parameters = new Dictionary<string, object?>
         {
-            { "mixed", new object[] { 1, "5", 10, "text", 15, null } }
+            { "mixed", new object?[] { 1, "5", 10, "text", 15, null } }
         };
 
         // Act

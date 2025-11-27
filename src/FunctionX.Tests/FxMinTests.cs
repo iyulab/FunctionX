@@ -7,7 +7,7 @@ namespace FunctionX.Tests;
 public class FxMinTests
 {
     [Fact]
-    public async void TestEvaluateMinWithConstants()
+    public async Task TestEvaluateMinWithConstants()
     {
         // Arrange
         var results = new Dictionary<string, object?>();
@@ -20,7 +20,7 @@ public class FxMinTests
     }
 
     [Fact]
-    public async void TestEvaluateMinWithVariable()
+    public async Task TestEvaluateMinWithVariable()
     {
         // Arrange
         var results = new Dictionary<string, object?>
@@ -37,7 +37,7 @@ public class FxMinTests
 
 
     [Fact]
-    public async void TestEvaluateMinWithEmptyArray()
+    public async Task TestEvaluateMinWithEmptyArray()
     {
         // Arrange
         var results = new Dictionary<string, object?>
@@ -54,7 +54,7 @@ public class FxMinTests
 
 
     [Fact]
-    public async void TestEvaluateMinWithNullValues()
+    public async Task TestEvaluateMinWithNullValues()
     {
         // Arrange
         var results = new Dictionary<string, object?>
@@ -71,7 +71,7 @@ public class FxMinTests
     }
 
     [Fact]
-    public async void TestEvaluateMinWithNaN()
+    public async Task TestEvaluateMinWithNaN()
     {
         // Arrange
         var results = new Dictionary<string, object?>
